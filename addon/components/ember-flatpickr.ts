@@ -83,7 +83,8 @@ export default class EmberFlatpickr extends Component<EmberFlatpickrArgs> {
     prevClick: null,
     nextClick: null,
     monthKey: null,
-    yearKey: null
+    yearKey: null,
+    dayFocusIn: null
   };
 
   // keep references to header controls so we can remove listeners when they are replaced
@@ -119,6 +120,9 @@ export default class EmberFlatpickr extends Component<EmberFlatpickrArgs> {
     }
     if (this.calendarEl && this.handlers.calendarKeydown) {
       this.calendarEl.removeEventListener('keydown', this.handlers.calendarKeydown, true);
+    }
+    if (this.calendarEl && this.handlers.dayFocusIn) {
+      this.calendarEl.removeEventListener('focusin', this.handlers.dayFocusIn, true);
     }
     if (this.refs.prev && this.handlers.prevClick) {
       this.refs.prev.removeEventListener('click', this.handlers.prevClick);
@@ -183,6 +187,7 @@ export default class EmberFlatpickr extends Component<EmberFlatpickrArgs> {
 
     const composedOnMonthYearChange = function (_selectedDates: Date[], _dateStr: string, instance: FlatpickrInstance) {
       self._setupHeaderA11y(instance);
+      self._focusInitialDay(instance);
     };
 
     // Defer consumer onChange to the next tick so flatpickr can finish its internal handlers
@@ -432,25 +437,123 @@ export default class EmberFlatpickr extends Component<EmberFlatpickrArgs> {
   }
 
 
+  private _isApplePlatform(): boolean {
+    if (typeof navigator === 'undefined') return false;
+    const platform = navigator.platform || '';
+    const ua = navigator.userAgent || '';
+    return /Mac|iPhone|iPad|iPod/.test(platform) || /Macintosh/.test(ua);
+  }
+
+  private _dayIndex(container: HTMLElement, day: HTMLElement): number {
+    return Array.from(container.querySelectorAll('.flatpickr-day')).indexOf(day);
+  }
+
+  private _buildDayAriaLabel(
+    day: HTMLElement,
+    instance: FlatpickrInstance,
+    index?: number
+  ): string {
+    const dateObj = (day as HTMLElement & { dateObj?: Date }).dateObj;
+    const format =
+      (instance as FlatpickrInstance & { formatDate?: (d: Date, f: string) => string }).formatDate ||
+      null;
+    const ariaDateFormat =
+      (instance.config as { ariaDateFormat?: string } | undefined)?.ariaDateFormat || 'F j, Y';
+
+    let dateText = day.getAttribute('aria-label') || day.textContent?.trim() || '';
+    if (dateObj && format) {
+      dateText = format.call(instance, dateObj, ariaDateFormat);
+    } else if (dateObj) {
+      dateText = dateObj.toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    }
+
+    let label = dateText;
+    if (day.classList.contains('today')) {
+      label = `current ${dateText}`;
+    } else if (day.classList.contains('selected')) {
+      label = `selected ${dateText}`;
+    } else {
+      label = dateText;
+    }
+
+    if (index !== undefined && this._isApplePlatform()) {
+      const row = Math.floor(index / 7) + 1;
+      const col = (index % 7) + 1;
+      return `${label} row ${row} column ${col}`;
+    }
+
+    return label;
+  }
+
+  private _applyDaysA11y(daysContainer: HTMLElement, instance: FlatpickrInstance): void {
+    if (this._isApplePlatform()) {
+      daysContainer.removeAttribute('role');
+      daysContainer.removeAttribute('aria-rowcount');
+      daysContainer.removeAttribute('aria-colcount');
+    } else {
+      daysContainer.setAttribute('role', 'grid');
+      daysContainer.setAttribute('aria-rowcount', '6');
+      daysContainer.setAttribute('aria-colcount', '7');
+    }
+
+    daysContainer.querySelectorAll('.dayContainer').forEach((dayContainer) => {
+      dayContainer.removeAttribute('role');
+      dayContainer.querySelectorAll('.flatpickr-day').forEach((day, index) => {
+        const el = day as HTMLElement;
+        el.setAttribute('tabindex', '-1');
+        el.removeAttribute('aria-current');
+
+        if (this._isApplePlatform()) {
+          el.removeAttribute('role');
+          el.removeAttribute('aria-rowindex');
+          el.removeAttribute('aria-colindex');
+          el.removeAttribute('aria-label');
+        } else {
+          el.setAttribute('role', 'gridcell');
+          el.setAttribute('aria-rowindex', String(Math.floor(index / 7) + 1));
+          el.setAttribute('aria-colindex', String((index % 7) + 1));
+          el.setAttribute('aria-label', this._buildDayAriaLabel(el, instance));
+        }
+      });
+    });
+  }
+
+  private _syncDayVisibility(
+    container: HTMLElement,
+    focusedDay: HTMLElement | null,
+    instance: FlatpickrInstance
+  ): void {
+    container.querySelectorAll('.flatpickr-day').forEach((day) => {
+      const el = day as HTMLElement;
+      if (focusedDay && el === focusedDay) {
+        el.removeAttribute('aria-hidden');
+        if (this._isApplePlatform()) {
+          const index = this._dayIndex(container, el);
+          el.setAttribute('aria-label', this._buildDayAriaLabel(el, instance, index));
+        }
+      } else {
+        el.setAttribute('aria-hidden', 'true');
+        if (this._isApplePlatform()) {
+          el.removeAttribute('aria-label');
+        }
+      }
+    });
+  }
+
   private _focusInitialDay(instance: FlatpickrInstance): void {
     const container = instance.calendarContainer as HTMLElement | undefined;
     if (!container) return;
 
     const { daysContainer } = this._getEls(container);
     if (daysContainer) {
-      daysContainer.setAttribute('role', 'grid');
-      daysContainer.querySelectorAll('.dayContainer').forEach((row) => {
-        row.setAttribute('role', 'row');
-        row.querySelectorAll('.flatpickr-day').forEach((day) => {
-          const el = day as HTMLElement;
-          el.setAttribute('role', 'gridcell');
-          el.setAttribute('tabindex', '-1');
-        });
-      });
+      this._applyDaysA11y(daysContainer, instance);
     }
 
     later(this, () => {
-      // choose first enabled in-month day
       const enabledSel = SELECTORS.dayEnabledInMonth;
       const selected = container.querySelector(`${SELECTORS.daySelected}:not(.flatpickr-disabled):not([aria-disabled=\"true\"])`) as HTMLElement | null;
       const today = container.querySelector(`${SELECTORS.dayToday}:not(.flatpickr-disabled):not([aria-disabled=\"true\"])`) as HTMLElement | null;
@@ -460,13 +563,41 @@ export default class EmberFlatpickr extends Component<EmberFlatpickrArgs> {
       if (candidate) {
         container.querySelectorAll(SELECTORS.dayTabbable).forEach((el) => (el as HTMLElement).setAttribute('tabindex', '-1'));
         candidate.setAttribute('tabindex', '0');
+        this._syncDayVisibility(container, candidate, instance);
         candidate.focus({ preventScroll: true });
       } else {
+        this._syncDayVisibility(container, null, instance);
         (container as HTMLElement).focus({ preventScroll: true });
       }
     }, 150);
   }
 
+
+  private _isTabFocusable(el: HTMLElement): boolean {
+    if (el.classList.contains('flatpickr-disabled')) return false;
+    if (el.classList.contains('flatpickr-day') && this._isDisabledDay(el)) return false;
+    if (el.getAttribute('aria-hidden') === 'true') return false;
+    if (el.getAttribute('aria-disabled') === 'true') return false;
+    if ((el as HTMLInputElement).disabled) return false;
+    return true;
+  }
+
+  private _stepTabIndex(order: HTMLElement[], fromIdx: number, reverse: boolean): number {
+    if (!order.length) return 0;
+
+    let idx = fromIdx;
+    for (let step = 0; step < order.length; step++) {
+      idx = reverse
+        ? (idx - 1 + order.length) % order.length
+        : (idx + 1) % order.length;
+
+      if (this._isTabFocusable(order[idx])) {
+        return idx;
+      }
+    }
+
+    return fromIdx;
+  }
 
   private _bindInputA11y(element: HTMLInputElement, instance: FlatpickrInstance): void {
     const visibleInput = (instance.altInput as HTMLInputElement) || element;
@@ -580,6 +711,15 @@ private _attachFocusCycle(instance: FlatpickrInstance): void {
 
   this.calendarEl = container;
 
+  if (!this.handlers.dayFocusIn) {
+    this.handlers.dayFocusIn = ((e: Event) => {
+      const el = e.target as HTMLElement;
+      if (!el.classList.contains('flatpickr-day')) return;
+      this._syncDayVisibility(container, el, instance);
+    }) as EventListener;
+    container.addEventListener('focusin', this.handlers.dayFocusIn, true);
+  }
+
   if (this.handlers.calendarKeydown) return; // already attached
 
   this.handlers.calendarKeydown = (e: KeyboardEvent) => {
@@ -595,12 +735,11 @@ private _attachFocusCycle(instance: FlatpickrInstance): void {
     let idx = active ? order.indexOf(active) : -1;
 
     if (idx === -1) {
-      idx = 0; // default to first item in cycle
+      idx = order.findIndex((el) => this._isTabFocusable(el));
+      if (idx === -1) return;
+    } else {
+      idx = this._stepTabIndex(order, idx, !!e.shiftKey);
     }
-
-    idx = e.shiftKey
-      ? (idx - 1 + order.length) % order.length
-      : (idx + 1) % order.length;
 
     const target = order[idx];
 
@@ -649,14 +788,13 @@ private _getTabOrder(container: HTMLElement): HTMLElement[] {
     container.querySelector(".flatpickr-day[tabindex='0']") ||
     container.querySelector(".flatpickr-day.selected:not(.flatpickr-disabled)") ||
     container.querySelector(".flatpickr-day.today:not(.flatpickr-disabled)") ||
-    container.querySelector(".flatpickr-day:not(.flatpickr-disabled)")
+    container.querySelector(".flatpickr-day:not(.flatpickr-disabled)");
 
   const headerMonth = monthSelect || curMonth;
-
   const orderRaw = [prev, headerMonth, yearInput, next, focusedDay];
 
-  return (orderRaw.filter(Boolean) as HTMLElement[]).filter(
-    (el, i, arr) => arr.indexOf(el) === i
-  );
+  return (orderRaw.filter(Boolean) as HTMLElement[])
+    .filter((el, i, arr) => arr.indexOf(el) === i)
+    .filter((el) => this._isTabFocusable(el));
 }
 }
