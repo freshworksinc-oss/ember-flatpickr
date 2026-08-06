@@ -16,7 +16,7 @@ interface EmberFlatpickrArgs extends FlatpickrOptions {
 
 /**
  * Ember component that wraps the lightweight [`flatpickr`](https://flatpickr.js.org) datetime
- * chooser..
+ * chooser.
  *
  * The `EmberFlatpickr` component requires that you pass in at the very least a `date` property
  * and an `onChange` callback.
