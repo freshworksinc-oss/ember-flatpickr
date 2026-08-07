@@ -811,4 +811,32 @@ module('Integration | Component | ember flatpickr', function (hooks) {
       'disable config was not overwritten'
     );
   });
+
+  test('calendar days use grid indices and custom aria-labels', async function (assert) {
+    this.set('dateValue', [new Date(2026, 7, 5)]);
+
+    await render(hbs`<EmberFlatpickr
+      @date={{this.dateValue}}
+      @inline={{true}}
+      @onChange={{null}}
+    />`);
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const focused = find('.flatpickr-day[tabindex="0"]');
+    const isApple =
+      /Mac|iPhone|iPad|iPod/i.test(navigator.platform) || /Macintosh/i.test(navigator.userAgent);
+
+    if (isApple) {
+      assert.strictEqual(focused.getAttribute('role'), null);
+      assert.ok(
+        /^current August 5,? 2026 row 2 column 4$/i.test(focused.getAttribute('aria-label') || '')
+      );
+    } else {
+      assert.strictEqual(find('.dayContainer').getAttribute('role'), null);
+      assert.strictEqual(focused.getAttribute('aria-rowindex'), '2');
+      assert.strictEqual(focused.getAttribute('aria-colindex'), '4');
+      assert.ok(/^current August 5,? 2026$/i.test(focused.getAttribute('aria-label') || ''));
+    }
+  });
 });
