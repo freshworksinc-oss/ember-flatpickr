@@ -1,0 +1,4 @@
+.flatpickr-months .flatpickr-prev-month:hover svg,
+.flatpickr-months .flatpickr-next-month:hover svg {
+  fill: #D32F2F !important;
+}
