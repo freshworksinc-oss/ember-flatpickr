@@ -1,6 +1,6 @@
 {
   "name": "ember-flatpickr",
-  "version": "3.2.8-FW",
+  "version": "3.2.9-FW",
   "description": "An Ember addon that wraps the date picker Flatpickr",
   "keywords": [
     "ember-addon",
