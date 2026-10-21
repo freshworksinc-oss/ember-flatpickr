@@ -393,6 +393,65 @@ export default class EmberFlatpickr extends Component<EmberFlatpickrArgs> {
     const firstEnabled = container.querySelector(SELECTORS.dayEnabledInMonth) as HTMLElement | null;
     return selected || today || firstEnabled;
   }
+
+  private _isTabFocusable(el: HTMLElement): boolean {
+    if (el.classList.contains('flatpickr-disabled')) return false;
+    if (el.classList.contains('flatpickr-day') && this._isDisabledDay(el)) return false;
+    if ((el as HTMLInputElement).disabled) return false;
+    return true;
+  }
+
+  /** After keyboard month change: keep focus on nav, or move to next tab stop if nav is disabled. */
+  private _refocusAfterMonthNavKey(instance: FlatpickrInstance, delta: number): void {
+    const container = instance.calendarContainer as HTMLElement | undefined;
+    if (!container) return;
+
+    const navSelector = delta < 0 ? SELECTORS.prevButton : SELECTORS.nextButton;
+    const enabledNav = container.querySelector(`${navSelector}:not(.flatpickr-disabled)`) as HTMLElement | null;
+    if (enabledNav) {
+      enabledNav.focus({ preventScroll: true });
+      return;
+    }
+
+    const disabledNav = container.querySelector(navSelector) as HTMLElement | null;
+    if (disabledNav?.classList.contains('flatpickr-disabled')) {
+      disabledNav.setAttribute('tabindex', '-1');
+    }
+
+    const tabStops: (HTMLElement | null)[] = [
+      container.querySelector(`${SELECTORS.prevButton}:not(.flatpickr-disabled)`),
+      (container.querySelector(SELECTORS.monthSelect) ||
+        container.querySelector(SELECTORS.currentMonth)) as HTMLElement | null,
+      (container.querySelector(SELECTORS.yearInput) ||
+        container.querySelector(SELECTORS.yearInputFallback)) as HTMLInputElement | null,
+      container.querySelector(`${SELECTORS.nextButton}:not(.flatpickr-disabled)`),
+      this._pickEnabledDay(container)
+    ];
+
+    const start = delta < 0 ? 0 : 3;
+    let target: HTMLElement | null = null;
+    for (let i = start + 1; i < tabStops.length; i++) {
+      const el = tabStops[i];
+      if (el && this._isTabFocusable(el)) {
+        target = el;
+        break;
+      }
+    }
+    if (!target) {
+      const order = this._getTabOrder(container);
+      target = order[0] || null;
+    }
+    if (!target) return;
+
+    if (target.classList.contains('flatpickr-day')) {
+      container.querySelectorAll(SELECTORS.dayTabbable).forEach((el) => (el as HTMLElement).setAttribute('tabindex', '-1'));
+      target.setAttribute('tabindex', '0');
+    } else if (!target.hasAttribute('tabindex')) {
+      target.setAttribute('tabindex', '0');
+    }
+    target.focus({ preventScroll: true });
+  }
+  
   // Set multiple attributes at once. Ignores undefined values.
   private _setAttributes(el: HTMLElement, attrs: Record<string, string | undefined>): void {
     for (const [key, value] of Object.entries(attrs)) {
@@ -623,15 +682,12 @@ export default class EmberFlatpickr extends Component<EmberFlatpickrArgs> {
   /* -------------------------
    *  Prev / Next Month , month/Year selection Buttons
    * ------------------------ */
-  const makeNavKeyHandler = (delta: number) => (e: KeyboardEvent) => {
+const makeNavKeyHandler = (delta: number) => (e: KeyboardEvent) => {
     if (e.key === KEYS.Enter || e.key === KEYS.Space) {
       e.preventDefault();
       (instance as any).changeMonth?.(delta);
-      later(this, () => this._focusInitialDay(instance), 50);
+      later(this, () => this._refocusAfterMonthNavKey(instance, delta), 0);
     }
-  };
-  const onNavClick = () => {
-    later(this, () => this._focusInitialDay(instance), 80);
   };
 
   if (prev) {
@@ -641,10 +697,6 @@ export default class EmberFlatpickr extends Component<EmberFlatpickrArgs> {
       'aria-label': ARIA.prevMonthLabel
     });
     this._bindOnce(prev, "prev", "prevKey", makeNavKeyHandler(-1));
-    if (!this.handlers.prevClick) {
-      this.handlers.prevClick = onNavClick as (e: MouseEvent) => void;
-      prev.addEventListener('click', this.handlers.prevClick);
-    }
   }
 
   if (next) {
@@ -654,10 +706,6 @@ export default class EmberFlatpickr extends Component<EmberFlatpickrArgs> {
       'aria-label': ARIA.nextMonthLabel
     });
     this._bindOnce(next, "next", "nextKey", makeNavKeyHandler(1));
-    if (!this.handlers.nextClick) {
-      this.handlers.nextClick = onNavClick as (e: MouseEvent) => void;
-      next.addEventListener('click', this.handlers.nextClick);
-    }
   }
 
  
