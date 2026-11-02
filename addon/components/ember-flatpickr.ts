@@ -182,6 +182,7 @@ export default class EmberFlatpickr extends Component<EmberFlatpickrArgs> {
     };
 
     const composedOnMonthYearChange = function (_selectedDates: Date[], _dateStr: string, instance: FlatpickrInstance) {
+      self._announceMonthChange(instance);
       self._setupHeaderA11y(instance);
     };
 
@@ -343,6 +344,41 @@ export default class EmberFlatpickr extends Component<EmberFlatpickrArgs> {
   // -------------------------
   // Accessibility helpers
   // -------------------------
+
+    private _announceMonthChange(instance: FlatpickrInstance): void {
+    const container = instance.calendarContainer as HTMLElement | undefined;
+    if (!container) return;
+
+    let announcer = container.querySelector('[data-ember-flatpickr-month-announcer]') as HTMLElement | null;
+    if (!announcer) {
+      announcer = document.createElement('div');
+      announcer.setAttribute('data-ember-flatpickr-month-announcer', '');
+      announcer.setAttribute('aria-live', 'polite');
+      announcer.setAttribute('aria-atomic', 'true');
+      Object.assign(announcer.style, {
+        position: 'absolute',
+        width: '1px',
+        height: '1px',
+        padding: '0',
+        margin: '-1px',
+        overflow: 'hidden',
+        clip: 'rect(0, 0, 0, 0)',
+        whiteSpace: 'nowrap',
+        border: '0'
+      });
+      container.appendChild(announcer);
+    }
+
+    const currentMonth = (instance as any).currentMonth as number;
+    const currentYear = (instance as any).currentYear as number;
+    const monthName = (instance as any).l10n?.months?.longhand?.[currentMonth] as string | undefined;
+    const message = monthName ? `${monthName} ${currentYear}` : String(currentYear);
+
+    announcer.textContent = '';
+    later(this, () => {
+      announcer!.textContent = message;
+    }, 0);
+  }
 
   private _ensureCalendarId(instance: FlatpickrInstance): string {
     const container = instance.calendarContainer as HTMLElement | undefined;
@@ -590,10 +626,11 @@ const makeNavKeyHandler = (delta: number) => (e: KeyboardEvent) => {
 
 
   if (yearInput) {
+    const yearDisabled = (yearInput as HTMLInputElement).disabled;
     this._setAttributes(yearInput, {
       'aria-label': ARIA.enterYearLabel,
       inputmode: 'numeric',
-      tabindex: '0'
+      tabindex: yearDisabled ? '-1' : '0'
     });
 
     const yearKeyHandler = (e: KeyboardEvent) => {
@@ -697,14 +734,14 @@ private _getTabOrder(container: HTMLElement): HTMLElement[] {
     container.querySelector(".flatpickr-day[tabindex='0']") ||
     container.querySelector(".flatpickr-day.selected:not(.flatpickr-disabled)") ||
     container.querySelector(".flatpickr-day.today:not(.flatpickr-disabled)") ||
-    container.querySelector(".flatpickr-day:not(.flatpickr-disabled)")
+    container.querySelector(".flatpickr-day:not(.flatpickr-disabled)");
 
   const headerMonth = monthSelect || curMonth;
 
   const orderRaw = [prev, headerMonth, yearInput, next, focusedDay];
 
   return (orderRaw.filter(Boolean) as HTMLElement[]).filter(
-    (el, i, arr) => arr.indexOf(el) === i
+    (el, i, arr) => arr.indexOf(el) === i && this._isTabFocusable(el)
   );
 }
 }
